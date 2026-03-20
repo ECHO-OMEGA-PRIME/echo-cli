@@ -1,0 +1,39 @@
+{
+  "name": "@echo-prime/cli",
+  "version": "3.0.0",
+  "description": "Echo Prime Technologies CLI — Query engines, search knowledge, manage doctrines, deploy workers",
+  "type": "module",
+  "bin": {
+    "echo": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "lint": "eslint src/",
+    "test": "vitest run"
+  },
+  "keywords": ["echo-prime", "ai", "engines", "cli", "sdk"],
+  "author": "Bobby Don McWilliams II <bobbymcwilliams@echo-op.com>",
+  "license": "Proprietary",
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "conf": "^13.0.0",
+    "ora": "^8.1.0",
+    "table": "^6.8.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "tsx": "^4.19.0",
+    "@types/node": "^22.0.0",
+    "vitest": "^2.1.0",
+    "eslint": "^9.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "files": ["dist/"],
+  "publishConfig": {
+    "access": "public"
+  }
+}
