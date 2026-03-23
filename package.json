@@ -1,6 +1,6 @@
 {
-  "name": "@echo-prime/cli",
-  "version": "3.0.0",
+  "name": "@echo-omega-prime/cli",
+  "version": "3.3.0",
   "description": "Echo Prime Technologies CLI — Query engines, search knowledge, manage doctrines, deploy workers",
   "type": "module",
   "bin": {
@@ -34,6 +34,7 @@
   },
   "files": ["dist/"],
   "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
     "access": "public"
   }
 }

@@ -300,6 +300,91 @@ export class EchoClient {
     return this.request('/auth/whoami');
   }
 
+  // Forge endpoints
+  async forgeCreate(type: string, spec: string) {
+    return this.request('/forge/create', {
+      method: 'POST',
+      body: { type, spec },
+      timeout: 120000,
+    });
+  }
+
+  async forgeStatus(buildId: string) {
+    return this.request('/forge/status', {
+      params: { build_id: buildId },
+    });
+  }
+
+  async forgeList() {
+    return this.request('/forge/builds');
+  }
+
+  // LLM endpoints
+  async llmQuery(prompt: string, provider?: string, model?: string) {
+    return this.request('/llm/query', {
+      method: 'POST',
+      body: { prompt, ...(provider ? { provider } : {}), ...(model ? { model } : {}) },
+      timeout: 60000,
+    });
+  }
+
+  async llmProviders() {
+    return this.request('/llm/providers');
+  }
+
+  // AGI endpoints
+  async agiStatus() {
+    return this.request('/agi/status');
+  }
+
+  async agiLearningHistory(limit = 20) {
+    return this.request('/agi/learning-history', {
+      params: { limit: String(limit) },
+    });
+  }
+
+  // Compose endpoints
+  async composeCreate(engines: string[], name?: string) {
+    return this.request('/compose/create', {
+      method: 'POST',
+      body: { engines, ...(name ? { name } : {}) },
+    });
+  }
+
+  async composeList() {
+    return this.request('/compose/list');
+  }
+
+  async composeInfo(compoundId: string) {
+    return this.request('/compose/info', {
+      params: { id: compoundId },
+    });
+  }
+
+  // Webhook endpoints
+  async webhooksList() {
+    return this.request('/webhooks');
+  }
+
+  async webhooksCreate(url: string, events: string[]) {
+    return this.request('/webhooks', {
+      method: 'POST',
+      body: { url, events },
+    });
+  }
+
+  async webhooksDelete(webhookId: string) {
+    return this.request(`/webhooks/${webhookId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async webhooksTest(webhookId: string) {
+    return this.request(`/webhooks/${webhookId}/test`, {
+      method: 'POST',
+    });
+  }
+
   // Health
   async health() {
     return this.request('/health');

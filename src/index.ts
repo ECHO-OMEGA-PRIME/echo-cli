@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @echo-prime/cli v3.0.0
+ * @echo-prime/cli v3.3.0
  * Echo Prime Technologies CLI — Query engines, search knowledge, manage doctrines, deploy workers.
  * Commander: Bobby Don McWilliams II | Authority 11.0 SUPREME SOVEREIGN
  */
@@ -11,7 +11,7 @@ import { config, getApiKey } from './config.js';
 import { EchoClient, EchoApiError } from './client.js';
 import { formatOutput, printSuccess, printError, printHeader, printWarning } from './formatters.js';
 
-const VERSION = '3.0.0';
+const VERSION = '3.3.0';
 
 const program = new Command();
 program
@@ -732,6 +732,169 @@ program
     console.log(`  Format:   ${config.get('outputFormat')}`);
     console.log(`  CLI:      v${VERSION}`);
     console.log(`  Node:     ${process.version}`);
+  });
+
+// ─── FORGE ────────────────────────────────────────────────────────────
+const forgeCmd = program.command('forge').description('Trigger forge builds — create engines, workers, bots');
+
+forgeCmd
+  .command('create <type> <spec>')
+  .alias('build')
+  .description('Trigger a forge build (type: engine, worker, bot, scraper)')
+  .action(async (type: string, spec: string) => {
+    const opts = program.opts();
+    const client = getClient(opts);
+    await run(`Forging ${type}: "${spec.slice(0, 60)}"`, async () => {
+      return client.forgeCreate(type, spec);
+    }, opts);
+  });
+
+forgeCmd
+  .command('status <buildId>')
+  .description('Check forge build status')
+  .action(async (buildId: string) => {
+    const opts = program.opts();
+    const client = getClient(opts);
+    await run(`Checking build: ${buildId}`, async () => {
+      return client.forgeStatus(buildId);
+    }, opts);
+  });
+
+forgeCmd
+  .command('list')
+  .description('List recent forge builds')
+  .action(async () => {
+    const opts = program.opts();
+    const client = getClient(opts);
+    await run('Fetching forge builds...', async () => {
+      return client.forgeList();
+    }, opts);
+  });
+
+// ─── LLM ──────────────────────────────────────────────────────────────
+program
+  .command('llm <prompt>')
+  .description('Query an LLM through the gateway')
+  .option('-p, --provider <provider>', 'LLM provider (e.g., openai, anthropic, groq)')
+  .option('-m, --model <model>', 'Specific model name')
+  .action(async (prompt: string, cmdOpts: { provider?: string; model?: string }) => {
+    const opts = program.opts();
+    const client = getClient(opts);
+    await run('Querying LLM...', async () => {
+      return client.llmQuery(prompt, cmdOpts.provider, cmdOpts.model);
+    }, opts);
+  });
+
+// ─── AGI ──────────────────────────────────────────────────────────────
+const agiCmd = program.command('agi').description('AGI self-improvement and learning status');
+
+agiCmd
+  .command('status')
+  .description('Show AGI learning status and metrics')
+  .action(async () => {
+    const opts = program.opts();
+    const client = getClient(opts);
+    await run('Fetching AGI status...', async () => {
+      return client.agiStatus();
+    }, opts);
+  });
+
+agiCmd
+  .command('history')
+  .description('Show AGI learning history')
+  .option('-l, --limit <n>', 'Max entries', '20')
+  .action(async (cmdOpts: { limit: string }) => {
+    const opts = program.opts();
+    const client = getClient(opts);
+    await run('Fetching learning history...', async () => {
+      return client.agiLearningHistory(parseInt(cmdOpts.limit));
+    }, opts);
+  });
+
+// ─── COMPOSE ──────────────────────────────────────────────────────────
+const composeCmd = program.command('compose').description('Create and manage compound engines');
+
+composeCmd
+  .command('create <engines...>')
+  .description('Create a compound engine from multiple engines')
+  .option('-n, --name <name>', 'Name for the compound engine')
+  .action(async (engines: string[], cmdOpts: { name?: string }) => {
+    const opts = program.opts();
+    const client = getClient(opts);
+    await run(`Composing ${engines.length} engines...`, async () => {
+      return client.composeCreate(engines, cmdOpts.name);
+    }, opts);
+  });
+
+composeCmd
+  .command('list')
+  .description('List compound engines')
+  .action(async () => {
+    const opts = program.opts();
+    const client = getClient(opts);
+    await run('Fetching compound engines...', async () => {
+      return client.composeList();
+    }, opts);
+  });
+
+composeCmd
+  .command('info <compoundId>')
+  .description('Get details about a compound engine')
+  .action(async (compoundId: string) => {
+    const opts = program.opts();
+    const client = getClient(opts);
+    await run(`Fetching compound engine: ${compoundId}`, async () => {
+      return client.composeInfo(compoundId);
+    }, opts);
+  });
+
+// ─── WEBHOOKS ─────────────────────────────────────────────────────────
+const webhooksCmd = program.command('webhooks').alias('wh').description('Manage webhook subscriptions');
+
+webhooksCmd
+  .command('list')
+  .description('List webhook subscriptions')
+  .action(async () => {
+    const opts = program.opts();
+    const client = getClient(opts);
+    await run('Fetching webhooks...', async () => {
+      return client.webhooksList();
+    }, opts);
+  });
+
+webhooksCmd
+  .command('create <url>')
+  .description('Create a webhook subscription')
+  .option('-e, --events <events>', 'Comma-separated event types', 'engine.query,forge.complete')
+  .action(async (url: string, cmdOpts: { events: string }) => {
+    const opts = program.opts();
+    const client = getClient(opts);
+    const events = cmdOpts.events.split(',').map(e => e.trim());
+    await run(`Creating webhook: ${url}`, async () => {
+      return client.webhooksCreate(url, events);
+    }, opts);
+  });
+
+webhooksCmd
+  .command('delete <webhookId>')
+  .description('Delete a webhook subscription')
+  .action(async (webhookId: string) => {
+    const opts = program.opts();
+    const client = getClient(opts);
+    await run(`Deleting webhook: ${webhookId}`, async () => {
+      return client.webhooksDelete(webhookId);
+    }, opts);
+  });
+
+webhooksCmd
+  .command('test <webhookId>')
+  .description('Send a test event to a webhook')
+  .action(async (webhookId: string) => {
+    const opts = program.opts();
+    const client = getClient(opts);
+    await run(`Testing webhook: ${webhookId}`, async () => {
+      return client.webhooksTest(webhookId);
+    }, opts);
   });
 
 // ─── PARSE & EXECUTE ───────────────────────────────────────────────────
