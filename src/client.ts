@@ -80,21 +80,24 @@ export class EchoClient {
   }
 
   // Engine endpoints
-  async engineQuery(query: string, domain?: string) {
+  async engineQuery(engineId: string, query: string, mode = 'FAST') {
     return this.request('/engine/query', {
-      params: { q: query, ...(domain ? { domain } : {}) },
+      method: 'POST',
+      body: { engine_id: engineId, query, mode },
     });
   }
 
-  async engineList(domain?: string) {
-    return this.request('/engine/list', {
-      params: domain ? { domain } : {},
+  async engineDomainQuery(domain: string, query: string, mode = 'FAST') {
+    return this.request('/engine/domain', {
+      method: 'POST',
+      body: { domain, query, mode },
     });
   }
 
-  async engineMetadata(engineId: string) {
-    return this.request('/engine/metadata', {
-      params: { engine_id: engineId },
+  async engineCrossDomain(query: string, limit = 10, mode = 'FAST') {
+    return this.request('/engine/cross-domain', {
+      method: 'POST',
+      body: { query, limit, mode },
     });
   }
 
@@ -104,21 +107,16 @@ export class EchoClient {
     });
   }
 
-  async engineStatus() {
-    return this.request('/engine/status');
+  async engineDomains() {
+    return this.request('/engine/domains');
   }
 
-  async engineCapabilities(engineId: string) {
-    return this.request('/engine/capabilities', {
-      params: { engine_id: engineId },
-    });
+  async engineStats() {
+    return this.request('/engine/stats');
   }
 
-  async engineQueryBatch(queries: Array<{ query: string; domain?: string }>) {
-    return this.request('/engine/query-batch', {
-      method: 'POST',
-      body: { queries },
-    });
+  async engineGet(engineId: string) {
+    return this.request(`/engine/${engineId}`);
   }
 
   // Knowledge endpoints
@@ -156,6 +154,20 @@ export class EchoClient {
 
   async brainStats() {
     return this.request('/brain/stats');
+  }
+
+  async brainContext(instanceId: string, query?: string) {
+    return this.request('/brain/context', {
+      method: 'POST',
+      body: { instance_id: instanceId, ...(query ? { query } : {}) },
+    });
+  }
+
+  async brainHeartbeat(instanceId: string, currentTask?: string) {
+    return this.request('/brain/heartbeat', {
+      method: 'POST',
+      body: { instance_id: instanceId, ...(currentTask ? { current_task: currentTask } : {}) },
+    });
   }
 
   // Vault endpoint
@@ -201,12 +213,16 @@ export class EchoClient {
     });
   }
 
-  // Unified search
+  // Unified search (5-layer: KV → EmbedCache → Vectorize+FTS5 → Reranker → GraphRAG)
   async search(query: string, sources?: string[], limit = 10) {
-    return this.request('/search/unified', {
+    return this.request('/search', {
       method: 'POST',
       body: { query, ...(sources ? { sources } : {}), limit },
     });
+  }
+
+  async searchStats() {
+    return this.request('/search/stats');
   }
 
   // Tool Discovery endpoints (via Worker proxy)
@@ -300,9 +316,134 @@ export class EchoClient {
     return this.request('/auth/whoami');
   }
 
+  // Forge endpoints
+  async forgeCreate(type: string, spec: string) {
+    return this.request('/forge/create', {
+      method: 'POST',
+      body: { type, spec },
+      timeout: 120000,
+    });
+  }
+
+  async forgeStatus(buildId: string) {
+    return this.request('/forge/status', {
+      params: { build_id: buildId },
+    });
+  }
+
+  async forgeList() {
+    return this.request('/forge/builds');
+  }
+
+  // LLM endpoints
+  async llmQuery(prompt: string, provider?: string, model?: string) {
+    return this.request('/llm/query', {
+      method: 'POST',
+      body: { prompt, ...(provider ? { provider } : {}), ...(model ? { model } : {}) },
+      timeout: 60000,
+    });
+  }
+
+  async llmProviders() {
+    return this.request('/llm/providers');
+  }
+
+  async llmModels() {
+    return this.request('/llm/models');
+  }
+
+  async llmStatus() {
+    return this.request('/llm/status');
+  }
+
+  // AGI endpoints
+  async agiStatus() {
+    return this.request('/agi/status');
+  }
+
+  async agiLearningHistory(limit = 20) {
+    return this.request('/agi/learning-history', {
+      params: { limit: String(limit) },
+    });
+  }
+
+  // Compose endpoints
+  async composeCreate(engines: string[], name?: string) {
+    return this.request('/compose/create', {
+      method: 'POST',
+      body: { engines, ...(name ? { name } : {}) },
+    });
+  }
+
+  async composeList() {
+    return this.request('/compose/list');
+  }
+
+  async composeInfo(compoundId: string) {
+    return this.request('/compose/info', {
+      params: { id: compoundId },
+    });
+  }
+
+  // Webhook endpoints
+  async webhooksList() {
+    return this.request('/webhooks');
+  }
+
+  async webhooksCreate(url: string, events: string[]) {
+    return this.request('/webhooks', {
+      method: 'POST',
+      body: { url, events },
+    });
+  }
+
+  async webhooksDelete(webhookId: string) {
+    return this.request(`/webhooks/${webhookId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async webhooksTest(webhookId: string) {
+    return this.request(`/webhooks/${webhookId}/test`, {
+      method: 'POST',
+    });
+  }
+
   // Health
   async health() {
     return this.request('/health');
+  }
+
+  /** Public request — no auth required (for signup, plans) */
+  async publicRequest<T = unknown>(path: string, opts: RequestOptions = {}): Promise<T> {
+    const { method = 'GET', body, params, timeout = 30000 } = opts;
+    const url = new URL(path, this.baseUrl);
+    if (params) {
+      for (const [k, v] of Object.entries(params)) {
+        url.searchParams.set(k, v);
+      }
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const fetchOpts: RequestInit = { method, headers, signal: controller.signal };
+    if (body && method !== 'GET') fetchOpts.body = JSON.stringify(body);
+
+    try {
+      const resp = await fetch(url.toString(), fetchOpts);
+      clearTimeout(timer);
+      const json = await resp.json() as ApiResponse<T>;
+      if (!resp.ok || !json.success) {
+        throw new EchoApiError(json.error?.message || `HTTP ${resp.status}`, json.error?.code || `HTTP_${resp.status}`, resp.status);
+      }
+      return json.data as T;
+    } catch (err) {
+      clearTimeout(timer);
+      if (err instanceof EchoApiError) throw err;
+      throw new EchoApiError(err instanceof Error ? err.message : 'Unknown error', 'NETWORK_ERROR', 0);
+    }
   }
 }
 
