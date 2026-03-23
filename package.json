@@ -1,6 +1,6 @@
 {
   "name": "@echo-omega-prime/cli",
-  "version": "3.3.0",
+  "version": "3.4.1",
   "description": "Echo Prime Technologies CLI — Query engines, search knowledge, manage doctrines, deploy workers",
   "type": "module",
   "bin": {
@@ -12,7 +12,13 @@
     "lint": "eslint src/",
     "test": "vitest run"
   },
-  "keywords": ["echo-prime", "ai", "engines", "cli", "sdk"],
+  "keywords": [
+    "echo-prime",
+    "ai",
+    "engines",
+    "cli",
+    "sdk"
+  ],
   "author": "Bobby Don McWilliams II <bobbymcwilliams@echo-op.com>",
   "license": "Proprietary",
   "dependencies": {
@@ -32,7 +38,9 @@
   "engines": {
     "node": ">=20.0.0"
   },
-  "files": ["dist/"],
+  "files": [
+    "dist/"
+  ],
   "publishConfig": {
     "registry": "https://npm.pkg.github.com",
     "access": "public"

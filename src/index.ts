@@ -11,7 +11,7 @@ import { config, getApiKey } from './config.js';
 import { EchoClient, EchoApiError } from './client.js';
 import { formatOutput, printSuccess, printError, printHeader, printWarning } from './formatters.js';
 
-const VERSION = '3.3.0';
+const VERSION = '3.4.0';
 
 const program = new Command();
 program
@@ -156,7 +156,7 @@ program
 
         // Check engine runtime
         try {
-          const status = await client.engineStatus() as Record<string, unknown>;
+          const status = await client.engineStats() as Record<string, unknown>;
           checks.push({ name: 'Engine Runtime', status: 'ok', detail: `${status.total_engines || '?'} engines, ${status.total_doctrines || '?'} doctrines` });
         } catch {
           checks.push({ name: 'Engine Runtime', status: 'warn', detail: 'Engine status unavailable' });
@@ -198,23 +198,27 @@ engineCmd
   .command('query <question>')
   .description('Ask a question — routed to the best engine')
   .option('-d, --domain <domain>', 'Target domain (tax, legal, oilfield, etc.)')
-  .action(async (question: string, cmdOpts: { domain?: string }) => {
+  .option('-e, --engine <id>', 'Specific engine ID (e.g., LG01, TX14)')
+  .action(async (question: string, cmdOpts: { domain?: string; engine?: string }) => {
     const opts = program.opts();
     const client = getClient(opts);
     await run(`Querying engines: "${question.slice(0, 50)}..."`, async () => {
-      return client.engineQuery(question, cmdOpts.domain || config.get('defaultDomain'));
+      if (cmdOpts.engine) {
+        return client.engineQuery(cmdOpts.engine, question);
+      }
+      // Use search for broad queries (semantic + keyword across all engines)
+      return client.engineSearch(question, 5);
     }, opts);
   });
 
 engineCmd
   .command('list')
-  .description('List available engines')
-  .option('-d, --domain <domain>', 'Filter by domain')
-  .action(async (cmdOpts: { domain?: string }) => {
+  .description('List available engine domains')
+  .action(async () => {
     const opts = program.opts();
     const client = getClient(opts);
-    await run('Fetching engine list...', async () => {
-      return client.engineList(cmdOpts.domain);
+    await run('Fetching engine domains...', async () => {
+      return client.engineDomains();
     }, opts);
   });
 
@@ -232,16 +236,12 @@ engineCmd
 
 engineCmd
   .command('info <engineId>')
-  .description('Get engine metadata and capabilities')
+  .description('Get engine details by ID')
   .action(async (engineId: string) => {
     const opts = program.opts();
     const client = getClient(opts);
     await run(`Fetching engine: ${engineId}`, async () => {
-      const [meta, caps] = await Promise.all([
-        client.engineMetadata(engineId),
-        client.engineCapabilities(engineId),
-      ]);
-      return { metadata: meta, capabilities: caps };
+      return client.engineGet(engineId);
     }, opts);
   });
 
@@ -252,21 +252,7 @@ engineCmd
     const opts = program.opts();
     const client = getClient(opts);
     await run('Checking engine runtime...', async () => {
-      return client.engineStatus();
-    }, opts);
-  });
-
-engineCmd
-  .command('batch')
-  .description('Batch query multiple questions')
-  .argument('<questions...>', 'Questions to ask (space separated, quote each)')
-  .option('-d, --domain <domain>', 'Target domain')
-  .action(async (questions: string[], cmdOpts: { domain?: string }) => {
-    const opts = program.opts();
-    const client = getClient(opts);
-    const queries = questions.map(q => ({ query: q, domain: cmdOpts.domain }));
-    await run(`Batch querying ${queries.length} questions...`, async () => {
-      return client.engineQueryBatch(queries);
+      return client.engineStats();
     }, opts);
   });
 
@@ -717,23 +703,6 @@ program
     }
   });
 
-// ─── WHOAMI ────────────────────────────────────────────────────────────
-program
-  .command('whoami')
-  .description('Show current identity and API key status')
-  .action(() => {
-    const key = getApiKey();
-    const gw = config.get('gatewayUrl');
-    console.log(chalk.bold.red('\n  Echo Prime Technologies'));
-    console.log(chalk.dim('  Intelligence at your fingertips\n'));
-    console.log(`  API Key:  ${key ? chalk.green('***' + key.slice(-6)) : chalk.red('Not configured')}`);
-    console.log(`  Gateway:  ${gw}`);
-    console.log(`  Domain:   ${config.get('defaultDomain')}`);
-    console.log(`  Format:   ${config.get('outputFormat')}`);
-    console.log(`  CLI:      v${VERSION}`);
-    console.log(`  Node:     ${process.version}`);
-  });
-
 // ─── FORGE ────────────────────────────────────────────────────────────
 const forgeCmd = program.command('forge').description('Trigger forge builds — create engines, workers, bots');
 
@@ -894,6 +863,200 @@ webhooksCmd
     const client = getClient(opts);
     await run(`Testing webhook: ${webhookId}`, async () => {
       return client.webhooksTest(webhookId);
+    }, opts);
+  });
+
+// ─── SIGNUP — Public, no auth ──────────────────────────────────────────
+program
+  .command('signup')
+  .description('Create a free Echo SDK account and get your API key')
+  .argument('<email>', 'Your email address')
+  .option('-n, --name <name>', 'Your name or company')
+  .action(async (email: string, opts: { name?: string }) => {
+    const spinner = ora('Creating your account...').start();
+    try {
+      const baseUrl = program.opts().gateway || 'https://echo-sdk-gateway.bmcii1976.workers.dev';
+      const resp = await fetch(`${baseUrl}/auth/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, name: opts.name || email.split('@')[0] }),
+      });
+      const json = await resp.json() as { success: boolean; data: { api_key: string; tenant_id: string; plan: string; limits: { daily: number } }; error?: { message: string } };
+      spinner.stop();
+      if (!json.success) {
+        printError(json.error?.message || 'Signup failed');
+        process.exit(1);
+      }
+
+      // Auto-save the API key
+      config.set('apiKey', json.data.api_key);
+
+      console.log('');
+      printSuccess('Account created successfully!');
+      console.log('');
+      console.log(chalk.bold('  Your API Key: ') + chalk.green(json.data.api_key));
+      console.log(chalk.dim('  (Saved to config — you\'re ready to go!)'));
+      console.log('');
+      console.log(chalk.bold('  Plan: ') + chalk.cyan(json.data.plan) + chalk.dim(` (${json.data.limits.daily} requests/day)`));
+      console.log(chalk.bold('  Tenant ID: ') + json.data.tenant_id);
+      console.log('');
+      console.log(chalk.bold('  Quick start:'));
+      console.log(chalk.dim('    echo engine query "contract liability"'));
+      console.log(chalk.dim('    echo knowledge search "drilling regulations"'));
+      console.log(chalk.dim('    echo llm "Summarize this contract..."'));
+      console.log('');
+      console.log(chalk.dim('  Upgrade: ') + chalk.underline('https://echo-ept.com/sdk/pricing'));
+      console.log(chalk.dim('  Docs:    ') + chalk.underline('https://echo-ept.com/sdk/docs'));
+      console.log('');
+      printWarning('Store your API key securely — it cannot be retrieved again.');
+    } catch (err) {
+      spinner.fail();
+      printError(err instanceof Error ? err.message : 'Network error');
+      process.exit(1);
+    }
+  });
+
+// ─── LOGIN — Set API key ──────────────────────────────────────────────
+program
+  .command('login')
+  .description('Set your API key (or run "echo signup" to create an account)')
+  .argument('<api-key>', 'Your echo_sk_* API key')
+  .action(async (apiKey: string) => {
+    if (!apiKey.startsWith('echo_sk_')) {
+      printError('Invalid key format. Keys start with echo_sk_');
+      process.exit(1);
+    }
+
+    config.set('apiKey', apiKey);
+    const spinner = ora('Verifying API key...').start();
+
+    try {
+      const client = getClient({ apiKey });
+      const whoami = await client.authWhoami() as { type: string; tenant_id: string; tenant?: { name: string; plan: string } };
+      spinner.stop();
+      printSuccess(`Logged in as ${whoami.tenant?.name || whoami.tenant_id} (${whoami.tenant?.plan || 'unknown'} plan)`);
+    } catch {
+      spinner.stop();
+      config.set('apiKey', apiKey); // Save anyway — might work later
+      printWarning('Key saved but could not verify. Check your key if requests fail.');
+    }
+  });
+
+// ─── LOGOUT ────────────────────────────────────────────────────────────
+program
+  .command('logout')
+  .description('Remove saved API key')
+  .action(() => {
+    config.set('apiKey', '');
+    printSuccess('API key removed.');
+  });
+
+// ─── PLANS — Show pricing ─────────────────────────────────────────────
+program
+  .command('plans')
+  .description('Show available SDK plans and pricing')
+  .action(async () => {
+    const baseUrl = program.opts().gateway || 'https://echo-sdk-gateway.bmcii1976.workers.dev';
+    const spinner = ora('Loading plans...').start();
+    try {
+      const resp = await fetch(`${baseUrl}/auth/plans`, { headers: { 'Content-Type': 'application/json' } });
+      const json = await resp.json() as { data: { plans: Array<{ id: string; name: string; price_monthly: number; daily_limit: number; features: string[] }> } };
+      spinner.stop();
+      console.log('');
+      printHeader('Echo SDK Plans');
+      console.log('');
+      for (const plan of json.data.plans) {
+        const price = plan.price_monthly === 0 ? chalk.green('FREE') : chalk.yellow(`$${plan.price_monthly}/mo`);
+        console.log(`  ${chalk.bold(plan.name.padEnd(12))} ${price.padEnd(20)} ${chalk.dim(plan.daily_limit.toLocaleString() + ' req/day')}`);
+        for (const f of plan.features) {
+          console.log(`    ${chalk.dim('•')} ${f}`);
+        }
+        console.log('');
+      }
+      console.log(chalk.dim('  Upgrade: echo upgrade <plan>'));
+      console.log(chalk.dim('  Details: https://echo-ept.com/sdk/pricing'));
+      console.log('');
+    } catch (err) {
+      spinner.fail();
+      printError(err instanceof Error ? err.message : 'Failed to load plans');
+    }
+  });
+
+// ─── UPGRADE — Create checkout session ─────────────────────────────────
+program
+  .command('upgrade')
+  .description('Upgrade your plan (opens browser for payment)')
+  .argument('<plan>', 'Plan to upgrade to: starter, pro, enterprise')
+  .option('-p, --provider <provider>', 'Payment provider: stripe or paypal', 'stripe')
+  .option('-i, --interval <interval>', 'Billing interval: monthly or annual', 'monthly')
+  .action(async (plan: string, opts: { provider: string; interval: string }) => {
+    const key = getApiKey();
+    if (!key) {
+      printError('Not logged in. Run: echo signup <email> or echo login <key>');
+      process.exit(1);
+    }
+
+    const spinner = ora(`Creating ${opts.provider} checkout for ${plan} plan...`).start();
+    try {
+      const client = getClient();
+      const whoami = await client.authWhoami() as { tenant_id: string };
+
+      const baseUrl = program.opts().gateway || 'https://echo-sdk-gateway.bmcii1976.workers.dev';
+      const resp = await fetch(`${baseUrl}/auth/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenant_id: whoami.tenant_id,
+          plan,
+          interval: opts.interval,
+          provider: opts.provider,
+        }),
+      });
+      const json = await resp.json() as { success: boolean; data?: { checkout_url: string; amount_cents: number }; error?: { message: string } };
+      spinner.stop();
+
+      if (!json.success) {
+        printError(json.error?.message || 'Checkout failed');
+        process.exit(1);
+      }
+
+      const amount = (json.data!.amount_cents / 100).toFixed(2);
+      console.log('');
+      printSuccess(`Checkout ready — $${amount}/${opts.interval}`);
+      console.log('');
+      console.log(chalk.bold('  Open this URL to complete payment:'));
+      console.log(`  ${chalk.underline.cyan(json.data!.checkout_url)}`);
+      console.log('');
+      console.log(chalk.dim('  Your plan will upgrade automatically after payment.'));
+      console.log('');
+    } catch (err) {
+      spinner.fail();
+      printError(err instanceof Error ? err.message : 'Checkout failed');
+      process.exit(1);
+    }
+  });
+
+// ─── USAGE — Show current usage stats ──────────────────────────────────
+program
+  .command('usage')
+  .description('Show your API usage stats')
+  .action(async () => {
+    const opts = program.opts();
+    const client = getClient(opts);
+    await run('Fetching usage stats', async () => {
+      return client.request('/auth/usage');
+    }, opts);
+  });
+
+// ─── WHOAMI ────────────────────────────────────────────────────────────
+program
+  .command('whoami')
+  .description('Show your current identity and plan')
+  .action(async () => {
+    const opts = program.opts();
+    const client = getClient(opts);
+    await run('Checking identity', async () => {
+      return client.authWhoami();
     }, opts);
   });
 
